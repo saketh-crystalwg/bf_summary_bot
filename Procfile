@@ -1,1 +1,1 @@
-worker: python bf_hourly_bot.py
+worker: python bf_summary_bot.py
