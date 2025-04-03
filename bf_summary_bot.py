@@ -176,6 +176,15 @@ for partner in partners:
     
     partner_data = partner_data[['Partner_Name','AffiliateId','Affiliate UserName','SignUps','FTDs','Deposits','Deposit_Amount']]
     
+    
+    if now.second != 0 or now.microsecond != 0:
+        rounded_time = (now + timedelta(minutes=1)).replace(second=0, microsecond=0)
+    else:
+        rounded_time = now.replace(second=0, microsecond=0)
+
+    # Format the rounded time to include in the header
+    formatted_time = rounded_time.strftime('%Y-%m-%d %H:%M')
+    
 
     # Plot table
     fig, ax = plt.subplots(figsize=(6, 2.5))  # Adjusted size for better readability
