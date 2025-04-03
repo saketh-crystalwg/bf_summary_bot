@@ -11,7 +11,6 @@ from telegram import Bot
 import nest_asyncio
 import asyncio
 
-
 # Get current UTC time
 now = datetime.utcnow()
 
@@ -94,7 +93,6 @@ if customers.empty:
 
 # Check if txns DataFrame is not empty before creating Partner_Name column
 if not txns.empty:
-    # Directly create the Partner_Name column based on Payment_Method after processing
     txns['Status'] = ['Approved' if x == 8 else 'ApprovedManually' if x == 12 else 'Cancelled' if x == 2 else
                       'CancelPending' if x == 14 else 'Confirmed' if x == 7 else 'Declined' if x == 6 else
                       'Deleted' if x == 11 else 'Expired' if x == 13 else 'Failed' if x == 9 else
@@ -109,7 +107,6 @@ if not txns.empty:
                               else 'PayOpRevolutUK' if x == 356 else 'PayOpBankUK' if x == 353 else 'PayOpMonzo' if x == 349
                               else 'Others' for x in txns['PaymentSystemId']]
 
-    # Directly create 'Partner_Name' column based on predefined mapping of PartnerId
     txns['Partner_Name'] = ['Betfoxx' if x == 20 else
                             'SlotsAmigo' if x == 137 else
                             'SlotsDynamite' if x == 140 else
@@ -122,12 +119,9 @@ if not txns.empty:
     successful_txn_1 = successful_txn.groupby(['Partner_Name','AffiliateId']).agg(Deposits=('Partner_Name', 'size'),
                                                                    Deposit_Amount=('ConvertedAmount', 'sum'),
                                                                  FTDs=('DepositCount', lambda x: (x == 1).sum())).reset_index()
-    
-    successful_txn_2 = successful_txn_1[successful_txn_1['Partner_Name'] ==  'Betfoxx']
 
 # Check if customers DataFrame is not empty before creating Partner_Name column
 if not customers.empty:
-    # Directly create 'Partner_Name' column based on predefined mapping of PartnerId
     customers['Partner_Name'] = ['Betfoxx' if x == 20 else
                                  'SlotsAmigo' if x == 137 else
                                  'SlotsDynamite' if x == 140 else
@@ -135,21 +129,42 @@ if not customers.empty:
                                  'JawBets' if x == 149 else
                                  'Unknown'
                                  for x in customers['PartnerId']]
-    
     customers['AffiliateId'] = customers['AffiliateId'].fillna('NAN')
-
     customers_1 = customers.groupby(['Partner_Name','AffiliateId']).agg(SignUps=('Partner_Name', 'size')).reset_index()
-    
-    customers_2 = customers_1[customers_1['Partner_Name'] ==  'Betfoxx']
 
-if not txns.empty and not customers.empty:
-    # Merge the successful transactions with customer data
-    combined = successful_txn_2.merge(customers_2, on=['Partner_Name','AffiliateId'], how='outer')
+# Merge the successful transactions with customer data
+combined = successful_txn_1.merge(customers_1, on=['Partner_Name','AffiliateId'], how='outer')
+
+# Format data
+combined['SignUps'] = combined['SignUps'].apply(lambda x: f'{x:,.0f}' if pd.notna(x) else '0')
+combined['FTDs'] = combined['FTDs'].apply(lambda x: f'{x:,.0f}' if pd.notna(x) else '0')
+combined['Deposits'] = combined['Deposits'].apply(lambda x: f'{x:,.0f}' if pd.notna(x) else '0')
+combined['Deposit_Amount'] = combined['Deposit_Amount'].apply(lambda x: f'€{x:,.0f}'.replace(',', 'X').replace('.', ',').replace('X', '.') if pd.notna(x) else '€0')
+
+# Split data by Partner_Name
+partners = ['Betfoxx', 'SlotsAmigo', 'SlotsDynamite', 'BullSpins', 'JawBets']
+tables = []
+
+for partner in partners:
+    partner_data = combined[combined['Partner_Name'] == partner]
     
-    combined = combined.sort_values(by='Deposit_Amount', ascending=False)
+    # Calculate total row
+    total_row = pd.DataFrame({
+        'Partner_Name': ['Total'],
+        'AffiliateId': [''],
+        'Deposits': [partner_data['Deposits'].astype(int).sum()],
+        'Deposit_Amount': [partner_data['Deposit_Amount'].apply(lambda x: x.replace('€', '').replace(',', '').replace('.', '')).astype(float).sum()],
+        'SignUps': [partner_data['SignUps'].apply(lambda x: x.replace(',', '')).astype(int).sum()],
+        'FTDs': [partner_data['FTDs'].apply(lambda x: x.replace(',', '')).astype(int).sum()]
+    })
     
-    data = {
-    'AffiliateId': [15,8,9,16,13,12,22,21,11,17,20,30,28,36,33,26,39],
+    total_row['Deposit_Amount'] = total_row['Deposit_Amount'].apply(lambda x: f'€{x:,.0f}'.replace(',', 'X').replace('.', ',').replace('X', '.') if pd.notna(x) else '€0')
+
+    partner_data = pd.concat([partner_data, total_row], ignore_index=True)
+    
+    partner_data = partner_data[['Partner_Name','AffiliateId','SignUps','FTDs','Deposits','Deposit_Amount']]
+
+    data = {'AffiliateId': [15,8,9,16,13,12,22,21,11,17,20,30,28,36,33,26,39],
     'Affiliate UserName': ['wabitech','fangsmedia','onlinecasinobonusppc','slimsumo','And_PC','Traffic','Kpower','ukseo22','MMDCasino22','Maisontraffic','BNWMEDIA', 'tordu92','Avstraffik','trafficj','BIZAGLO','Themediahunters','Digital-mirage']
     }
 
@@ -157,96 +172,58 @@ if not txns.empty and not customers.empty:
 
     Affs['AffiliateId'] = Affs['AffiliateId'].astype(str)
 
-    combined_2 = combined.merge(Affs, on=['AffiliateId'], how='left')
+    partner_data = partner_data.merge(Affs, on=['AffiliateId'], how='left')
     
-    combined_3 = combined_2[['Partner_Name','AffiliateId','Affiliate UserName','SignUps','FTDs','Deposits','Deposit_Amount']]
-
-
-    # Calculate total row
-    total_row = pd.DataFrame({'Partner_Name': ['Total'],'AffiliateId': [''],'Affiliate UserName': [''], 'Deposits': [combined_3['Deposits'].sum()],
-                              'Deposit_Amount': [combined_3['Deposit_Amount'].sum()], 'SignUps': [combined_3['SignUps'].sum()],
-                              'FTDs': [combined_3['FTDs'].sum()]})
-    combined_4 = pd.concat([combined_3, total_row], ignore_index=True)
-
-    # Format data
-    combined_4['SignUps'] = combined_4['SignUps'].apply(lambda x: f'{x:,.0f}')
-    combined_4['FTDs'] = combined_4['FTDs'].apply(lambda x: f'{x:,.0f}')
-    combined_4['Deposits'] = combined_4['Deposits'].apply(lambda x: f'{x:,.0f}')
-    combined_4['Deposit_Amount'] = combined_4['Deposit_Amount'].apply(lambda x: f'€{x:,.0f}'.replace(',', 'X').replace('.', ',').replace('X', '.'))
-
-    combined_5 = combined_4[['Partner_Name','AffiliateId','Affiliate UserName','SignUps','FTDs','Deposits','Deposit_Amount']]
+    partner_data = partner_data[['Partner_Name','AffiliateId','Affiliate UserName','SignUps','FTDs','Deposits','Deposit_Amount']]
     
-# Sample DataFrame
-        
-    
-    if now.second != 0 or now.microsecond != 0:
-        rounded_time = (now + timedelta(minutes=1)).replace(second=0, microsecond=0)
-    else:
-        rounded_time = now.replace(second=0, microsecond=0)
 
-    # Format the rounded time to include in the header
-    formatted_time = rounded_time.strftime('%Y-%m-%d %H:%M')
-
-    # Create the header message
-    header = f"BF current day summary as of {formatted_time}"
-
-    
+    # Plot table
     fig, ax = plt.subplots(figsize=(6, 2.5))  # Adjusted size for better readability
-    ax.axis('off')  # Turn off axis
+    ax.axis('off')
+    header = f"{partner} current day summary as of {formatted_time}"
     ax.text(0.5, 1.3, header, ha='center', va='bottom', fontsize=8, fontweight='bold', color='black')
-    col_widths = [0.195] * len(combined_5.columns)
-    table = ax.table(cellText=combined_5.values, colLabels=combined_5.columns, loc='center', cellLoc='center', colWidths=col_widths)
-
-    # Disable auto font size and set it explicitly
-    table.auto_set_font_size(False)  # Disable auto font size
-    table.set_fontsize(8)  # Set font size manually for the table cells
+    col_widths = [0.195] * len(partner_data.columns)
+    table = ax.table(cellText=partner_data.values, colLabels=partner_data.columns, loc='center', cellLoc='center', colWidths=col_widths)
     
+    # Disable auto font size and set it explicitly
+    table.auto_set_font_size(False)
+    table.set_fontsize(8)
+
     # Set padding and adjust cell properties
     for (i, j), cell in table.get_celld().items():
-        cell.set_fontsize(8)  # Set font size for text inside the cell
-        cell.set_text_props(ha='center', va='center')  # Center text inside cells
-        cell.set_edgecolor('black')  # Set cell borders
-        cell.set_linewidth(1)  # Set cell border thickness
-        if i == 0:  # Set the header row's background color
+        cell.set_fontsize(8)
+        cell.set_text_props(ha='center', va='center')
+        cell.set_edgecolor('black')
+        cell.set_linewidth(1)
+        if i == 0:  # Set header row background color
             cell.set_facecolor('#e6e6e6')
 
-    # Bold the "Total" row (last row)
-        if i == len(combined_5):  # This is the last row, the "Total" row
-            cell.set_text_props(weight='bold')  # Make the text bold
-            cell.set_facecolor('#e6e6e6')  # Set a background color for the total row to differentiate
-    # Adjust layout to minimize space between header and table
-    plt.subplots_adjust(left=0.05, right=0.95, top=0.7, bottom=0.05)  # Adjusted layout for closer alignment
-    # Save the image
-    plt.savefig('table_snapshot.png', bbox_inches='tight', dpi=300)
+        if i == len(partner_data):  # Total row
+            cell.set_text_props(weight='bold')
+            cell.set_facecolor('#e6e6e6')
+
+    # Adjust layout
+    plt.subplots_adjust(left=0.05, right=0.95, top=0.7, bottom=0.05)
+    filename = f'table_snapshot_{partner}.png'
+    plt.savefig(filename, bbox_inches='tight', dpi=300)
     plt.close()
 
-else:
-    # If either txns or customers are empty, send appropriate message
-    print("Either no deposits or no customers for the current day.")
+    # Add to table list
+    tables.append(filename)
 
+# Send tables via Telegram
 nest_asyncio.apply()
 
-TOKEN = '8156463627:AAHgELhXVteugJysMcYBM2Ht7C-RWS-WHUU'
-CHAT_ID = '-4679957197'
+TOKEN = '8136460878:AAFvL8CYVaAnZx7srn8Yuwy0HQkERtLZlDc'
+CHAT_ID = '-4524311273'
 
-# Check if combined_1 is empty or not
-if combined_5.empty:
-    message = f"No Transactions or Signups done for the current day as of {formatted_time}"
-else:
-    message = None
-
-# Function to send the photo asynchronously
-async def send_photo():
+async def send_tables():
     bot = Bot(token=TOKEN)
 
-    if message:  # If the message is set (i.e., combined_1 is empty)
-        await bot.send_message(chat_id=CHAT_ID, text=message)
-        print("Message sent to Telegram!")
-    else:
-        with open('table_snapshot.png', 'rb') as photo:
-            # Send the photo asynchronously
+    for table_filename in tables:
+        with open(table_filename, 'rb') as photo:
             await bot.send_photo(chat_id=CHAT_ID, photo=photo)
-        print("Table snapshot sent to Telegram!")
+        print(f"{table_filename} sent to Telegram!")
 
-# Run the send_photo function asynchronously
-asyncio.run(send_photo())
+# Run the send_tables function asynchronously
+asyncio.run(send_tables())
